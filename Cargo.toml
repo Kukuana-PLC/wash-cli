@@ -1,0 +1,27 @@
+[package]
+name = "kukuana-wash"
+version = "0.1.0"
+edition = "2021"
+author = "Eden Kukuana"
+about = "A wrapper around wash cli to help with running in dev mode"
+description = "A wrapper around wash cli to help with running in dev mode"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wadm = "0.9.0"
+clap = { version = "4.4.11", features = ["derive", "env"]}
+serde_yaml = "0.9.27"
+serde_json = "^1.0"
+colored = "2"
+wasmcloud-interface-lattice-control = "0.20.0"
+serde = "^1.0"
+wasmbus-rpc = { version = "0.15.0", features = ["metrics", "otel", "default"] }
+wash-lib = "0.15.0"
+regex = "1.10.2"
+notify = { version = "6.1.1", features = ["serde"] }
+notify-debouncer-full = "0.3.1"
+futures = "0.3"
+ctrlc = "3.4.1"
+indicatif = "0.17.7"
