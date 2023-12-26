@@ -2,8 +2,7 @@
 name = "kukuana-wash"
 version = "0.1.0"
 edition = "2021"
-author = "Eden Kukuana"
-about = "A wrapper around wash cli to help with running in dev mode"
+authors = ["Eden <hello@eden.com>", "Emmanuel Enwenede <emmanuel@eden.com>", "Kukuana <hello@kukuana.com>"]
 description = "A wrapper around wash cli to help with running in dev mode"
 
 

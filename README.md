@@ -8,6 +8,18 @@ The `Kukuana Wash CLI` is a streamlined wrapper for the wasmCloud `wash` CLI, de
 kuwash dev [path_to_wadm].yaml
 ```
 
+or run the install script.
+
+```zsh
+./install.sh #
+```
+
+It will build and copy the binary to /usr/local/bin/kukuana-wash.
+Then you run run the following:
+```zsh
+kuwash --help
+```
+
 ## Purpose
 The wrapper addresses specific issues with the standard `wash cli`'s `dev` mode, such as creating a new host for each session and failing to clean up after receiving a `SIGINT` signal.
 
