@@ -39,7 +39,7 @@ pub struct LovalHostInventory {
     pub providers: ProviderDescriptions,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct StoredActorClaims {
     pub call_alias: String,
     #[serde(alias = "caps", deserialize_with = "deserialize_messy_vec")]
@@ -106,7 +106,7 @@ impl<'de> Deserialize<'de> for MessyVec {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct StoredProviderClaims {
     pub capability_contract_id: String,
     #[serde(alias = "iss")]
@@ -127,7 +127,7 @@ pub struct StoredProviderClaims {
 pub struct Helper {}
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum ComponentClaims {
     Actor(StoredActorClaims),
@@ -309,8 +309,48 @@ impl Helper {
         let output = process::Command::new("make").current_dir(path)
             .output().expect("Failed to execute make binary");
 
-        if output.status.success() {
+        return if output.status.success() {
             Logger::info("Provider built successfully \n".into());
+            Logger::info(format!("{}", String::from_utf8_lossy(&output.stdout)));
+            true
+        } else {
+            let error_str = String::from_utf8_lossy(&output.stderr);
+            Logger::error(error_str.to_string());
+            false
+            // Do not exit on build failure to allow for hot reload when build is fixed
+            // Logger::error("Build is failing so we have to exit. Sorry".into());
+            // exit(1);
+        }
+    }
+
+    pub fn build_project_with_cargo(path: &str) -> bool {
+        Logger::info(format!("Building project with cargo {path:?}"));
+        let output = process::Command::new("cargo").current_dir(path)
+            .args(["build", "--release"])
+            .output().expect("Failed to execute cargo binary");
+
+        return if output.status.success() {
+            Logger::info("Project built successfully \n".into());
+            Logger::info(format!("{}", String::from_utf8_lossy(&output.stdout)));
+            true
+        } else {
+            let error_str = String::from_utf8_lossy(&output.stderr);
+            Logger::error(error_str.to_string());
+            false
+            // Do not exit on build failure to allow for hot reload when build is fixed
+            // Logger::error("Build is failing so we have to exit. Sorry".into());
+            // exit(1);
+        }
+    }
+
+    pub fn clean_provider(path: &str) -> bool {
+        Logger::info(format!("Cleaning provider par files {path:?}"));
+        let output = process::Command::new("make").current_dir(path)
+            .args(["clean"])
+            .output().expect("Failed to execute make binary");
+
+        if output.status.success() {
+            Logger::info("Provider par file cleaned successfully \n".into());
             Logger::info(format!("{}", String::from_utf8_lossy(&output.stdout)));
             return true;
         } else {
@@ -320,6 +360,21 @@ impl Helper {
             // Do not exit on build failure to allow for hot reload when build is fixed
             // Logger::error("Build is failing so we have to exit. Sorry".into());
             // exit(1);
+        }
+    }
+
+    pub fn delete_directory(path: &str) {
+        Logger::info(format!("Deleting directory at {path:?}"));
+        let output = process::Command::new("rm")
+            .args(["-rf", path])
+            .output().expect("Failed to execute rm binary");
+
+        if output.status.success() {
+            Logger::info(format!("Directory({path}) deleted successfully \n"));
+            Logger::info(format!("{}", String::from_utf8_lossy(&output.stdout)));
+        } else {
+            let error_str = String::from_utf8_lossy(&output.stderr);
+            Logger::error(error_str.to_string());
         }
     }
 
@@ -346,6 +401,21 @@ impl Helper {
 
         if output.status.success() {
             Logger::info(format!("Provider with ID {provider_id:?} stopped \n"));
+            Logger::info(format!("{}", String::from_utf8_lossy(&output.stdout)));
+        } else {
+            let error_str = String::from_utf8_lossy(&output.stderr);
+            Logger::error(error_str.to_string());
+        }
+    }
+
+    pub fn start_provider(image_ref: &str) {
+        Logger::info(format!("Starting provider {image_ref:?}"));
+        let output = process::Command::new("wash")
+            .args(["start", "provider", &image_ref, "-o", "json"])
+            .output().expect("Failed to execute wash binary");
+
+        if output.status.success() {
+            Logger::info(format!("Provider at {image_ref:?} started \n"));
             Logger::info(format!("{}", String::from_utf8_lossy(&output.stdout)));
         } else {
             let error_str = String::from_utf8_lossy(&output.stderr);

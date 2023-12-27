@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use wadm::model::{Component, Manifest, Properties};
@@ -10,6 +10,7 @@ use crate::helper::LovalHostInventory;
 use crate::logger::Logger;
 use notify::{Watcher, RecursiveMode};
 use notify_debouncer_full::new_debouncer;
+use crate::commands::component_data::ComponentData;
 
 
 #[derive(Debug)]
@@ -19,11 +20,10 @@ pub struct DevCommand {
     pub actors: ActorDescriptions,
     pub manifest: Manifest,
     pub arguments: DevArgs,
-    pub state: HashMap<String, (Component, ComponentClaims)>
+    pub state: ComponentData
 }
 
 impl DevCommand {
-
     /// Simple dev mode
     /// The simple dev mode takes a wadm.yaml file and deploys the application.
     ///
@@ -39,9 +39,8 @@ impl DevCommand {
     pub fn simple(&mut self) {
 
         self.setup_image_maping();
-        let repo_paths = self.state.keys().map(|key| Path::new(key));
 
-        if repo_paths.count() == 0 {
+        if self.state.is_empty() {
             Logger::error_and_exit("No local actors or providers found in manifest. Cannot run dev mode".to_string());
         }
 
@@ -51,18 +50,30 @@ impl DevCommand {
 
         self.listen_for_changes_and_redeploy();
 
-
     }
+
+    /// create its own client and use the api
+    /// to start the application
+    /// update actors and providers on change
+    #[allow(dead_code)]
+    pub fn managed(&mut self) {
+        self.setup_image_maping();
+        println!("DevCommand: {:#?}", self.state);
+    }
+}
+
+impl DevCommand {
 
     /// Listens for changes in the `src` folder of each local actor or provider
     /// build and redeploy
     fn listen_for_changes_and_redeploy(&mut self) {
-        let repo_paths = self.state.keys().map(|key| Path::new(key));
+        let repo_paths = self.state.get_paths();
         let (tx, rx) = std::sync::mpsc::channel();
         let mut debouncer = new_debouncer(Duration::from_millis(500), None, tx).unwrap();
 
 
-        for path in repo_paths.clone() {
+        for path in &repo_paths {
+            let path = Path::new(&path);
             debouncer.watcher().watch(&path.join("src"), RecursiveMode::Recursive).unwrap();
             debouncer.cache().add_root(path, RecursiveMode::Recursive);
         }
@@ -82,22 +93,23 @@ impl DevCommand {
                 Ok(events) => {
                     let mut path_set: HashSet<String> = HashSet::new();
                     for event in events {
-                        for path in repo_paths.clone() {
-                            if event.paths.iter().any(|p| p.starts_with(path)) {
-                                path_set.insert(path.to_str().unwrap().to_string());
+                        for path in &repo_paths {
+                            if event.paths.iter().any(|p| p.starts_with(&path)) {
+                                path_set.insert(path.clone());
                             }
                         }
                     }
 
                     path_set.iter().for_each(|path| {
 
-                        let (component, claims) = self.state.get(path).unwrap();
+                        let reference = self.state.get_by_path(path).unwrap();
+                        let (component, claims) = (*reference).clone();
                         let p = path.clone();
 
 
                         match &component.properties {
                             Properties::Actor {
-                                properties
+                                properties,
                             } => {
                                 Logger::info(format!("Rebuilding actor: {}", properties.image));
                                 if let ComponentClaims::Actor(StoredActorClaims { module, .. }) = claims {
@@ -126,6 +138,7 @@ impl DevCommand {
 
                                     if Helper::build_provider(&p) {
                                         Helper::stop_provider(&id, &contract_id);
+                                        // Helper::start_provider(&properties.image)
                                     }
                                 }
                             }
@@ -141,9 +154,12 @@ impl DevCommand {
 
 
     fn initial_build(&mut self) {
-        for path in self.state.keys() {
-            let (component, claims) = self.state.get(path).unwrap();
-            let path = path.clone();
+        for path in self.state.get_paths() {
+            let reference = self.state.get_by_path(&path).unwrap();
+
+            let (component, claims) = (*reference).clone();
+
+            // let path = path.clone();
             match &component.properties {
                 Properties::Actor { .. } => {
                     if let ComponentClaims::Actor(_) = claims {
@@ -172,17 +188,24 @@ impl DevCommand {
                     if image.starts_with("file://") {
                         let actor_repo_path = image.clone().replace("file://", "");
 
+                        // This is always an actor
+                        // But there may be a case when someone uses the wrong image
                         let props = Helper::inspect_images(actor_repo_path.clone());
-                        println!("result = {:#?}", &props);
+                        if let ComponentClaims::Actor(props) = props {
+                            println!("result = {:#?}", &props);
 
-                        let actor_image_regex = Regex::new(r"/build/([^/]+)\.wasm").unwrap();
-                        let provider_image_regex = Regex::new(r"/build/([^/]+)\.par.gz").unwrap();
-                        let actor_repo_path: String = actor_image_regex.replace(&actor_repo_path, "").into();
-                        let actor_repo_path: String = provider_image_regex.replace(&actor_repo_path, "").into();
+                            let actor_image_regex = Regex::new(r"/build/([^/]+)\.wasm").unwrap();
+                            let provider_image_regex = Regex::new(r"/build/([^/]+)\.par.gz").unwrap();
+                            let actor_repo_path: String = actor_image_regex.replace(&actor_repo_path, "").into();
+                            let actor_repo_path: String = provider_image_regex.replace(&actor_repo_path, "").into();
 
-                        {
-                            self.state.insert(actor_repo_path.clone(), (component.clone(), props));
+                            {
+                                self.state.add_item(component.name.clone(), actor_repo_path.clone(), props.module.clone(), component.clone(), ComponentClaims::Actor(props));
+                            }
+                        } else {
+                            Logger::error_and_exit(format!("Oops, the provider image {} is not an actor", image));
                         }
+
                     } else {
                         Logger::info(format!("Skipping non local component in: {}", image));
                     }
@@ -195,14 +218,20 @@ impl DevCommand {
                         let capability_repo_path = image.clone().replace("file://", "");
 
                         let props = Helper::inspect_images(capability_repo_path.clone());
-                        println!("result = {:#?}", &props);
 
-                        let provider_image_regex = Regex::new(r"/build/([^/]+)\.par.gz").unwrap();
-                        let capability_repo_path: String = provider_image_regex.replace(&capability_repo_path, "").into();
+                        if let ComponentClaims::Provider(props) = props {
+                            println!("result = {:#?}", &props);
 
-                        {
-                            self.state.insert(capability_repo_path.clone(), (component.clone(), props));
+                            let provider_image_regex = Regex::new(r"/build/([^/]+)\.par.gz").unwrap();
+                            let capability_repo_path: String = provider_image_regex.replace(&capability_repo_path, "").into();
+
+                            {
+                                self.state.add_item(component.name.clone(), capability_repo_path.clone(), props.service.clone(), component.clone(), ComponentClaims::Provider(props));
+                            }
+                        } else {
+                            Logger::error_and_exit(format!("Oops, the provider image {} is not a provider", image));
                         }
+
 
                     } else {
                         Logger::info(format!("Skipping non local component in: {}", image));
@@ -213,27 +242,14 @@ impl DevCommand {
         }
     }
 
-    /// TODO: This should use the wash-lib crate
-    /// create its own client and use the api
-    /// to start the application
-    /// update actors and providers on change
-    #[allow(dead_code)]
-    pub fn compound(&mut self) {
-        eprintln!("Compound dev mode not implemented yet")
-    }
-
     /// This harnesses the full power of the wash api
     pub fn start(&mut self) {
-        self.simple()
 
-        // We can use the simple dev mode for now
-        // and implement the compound dev mode later
-        // no need for the --simple flag now
-        // if self.arguments.simple {
-        //     return self.simple()
-        // }
+        if self.arguments.simple {
+            return self.simple()
+        }
 
-        // self.compound()
+        self.managed()
     }
 
     pub fn new(manifest: Manifest, arguments: &DevArgs) -> DevCommand {
@@ -243,7 +259,7 @@ impl DevCommand {
             arguments: arguments.clone(),
             hosts: Helper::get_hosts(),
             inventory: Helper::get_host_inventory(),
-            state: HashMap::new()
+            state: ComponentData::new()
         }
     }
 

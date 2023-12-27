@@ -30,8 +30,8 @@ pub struct DevArgs {
 
     // If you want a simple option for just one actor
     // No required until compound dev mode is ready
-    // #[arg(long)]
-    // pub simple: bool
+    #[arg(long)]
+    pub simple: bool
 }
 
 
