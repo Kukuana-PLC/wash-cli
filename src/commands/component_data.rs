@@ -29,20 +29,29 @@ impl ComponentData {
     }
 
     // Method to get an item by name
-    pub fn get_by_name(&self, name: &str) -> Option<Arc<(Component, ComponentClaims)>> {
-        self.name_map.get(name).cloned()
+    pub fn get_by_name(&self, name: &str) -> (Component, ComponentClaims) {
+        let reference = self.name_map.get(name).cloned().unwrap();
+        (*reference).clone()
     }
 
     // Method to get an item by path
-    pub fn get_by_path(&self, path: &str) -> Option<Arc<(Component, ComponentClaims)>> {
-        self.path_map.get(path).cloned()
+    pub fn get_by_path(&self, path: &str) -> (Component, ComponentClaims) {
+        let reference = self.path_map.get(path).cloned().unwrap();
+        (*reference).clone()
     }
 
 
     // Method to get an item by id
-    pub fn get_by_id(&self, id: &str) -> Option<Arc<(Component, ComponentClaims)>> {
-        self.id_map.get(id).cloned()
+    pub fn get_by_id(&self, id: &str) -> (Component, ComponentClaims) {
+        let reference = self.id_map.get(id).cloned().unwrap();
+        (*reference).clone()
     }
+
+    pub fn get_components(&self) -> Vec<(Component, ComponentClaims)> {
+        self.name_map.values().cloned().map(|x| (*x).clone()).collect()
+    }
+
+
 
     pub fn is_empty(&self) -> bool {
         self.name_map.is_empty()

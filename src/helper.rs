@@ -134,6 +134,22 @@ pub enum ComponentClaims {
     Provider(StoredProviderClaims)
 }
 
+impl ComponentClaims {
+    pub fn get_actor_claims(&self) -> StoredActorClaims {
+        match self {
+            ComponentClaims::Actor(claims) => claims.clone(),
+            _ => panic!("This is not an actor")
+        }
+    }
+
+    pub fn get_provider_claims(&self) -> StoredProviderClaims {
+        match self {
+            ComponentClaims::Provider(claims) => claims.clone(),
+            _ => panic!("This is not a provider")
+        }
+    }
+}
+
 impl Helper {
     pub fn get_manifest_from_wadm_config(path: &PathBuf) -> Result<Manifest, Box<dyn std::error::Error>> {
         let yaml_str = fs::read_to_string(path)?;

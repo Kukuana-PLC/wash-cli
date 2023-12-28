@@ -1,7 +1,7 @@
 use std::collections::{HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use wadm::model::{Component, Manifest, Properties};
+use wadm::model::{Component, Manifest, Properties, TraitProperty};
 use wasmcloud_interface_lattice_control::{Hosts, ActorDescriptions, Host};
 use regex::Regex;
 use crate::arguments::DevArgs;
@@ -58,7 +58,15 @@ impl DevCommand {
     #[allow(dead_code)]
     pub fn managed(&mut self) {
         self.setup_image_maping();
-        println!("DevCommand: {:#?}", self.state);
+
+        if self.state.is_empty() {
+            Logger::error_and_exit("No local actors or providers found in manifest. Cannot run dev mode".to_string());
+        }
+
+        self.initial_build();
+
+        self.validate_actor_claims();
+
     }
 }
 
@@ -102,10 +110,8 @@ impl DevCommand {
 
                     path_set.iter().for_each(|path| {
 
-                        let reference = self.state.get_by_path(path).unwrap();
-                        let (component, claims) = (*reference).clone();
+                        let (component, claims) = self.state.get_by_path(path);
                         let p = path.clone();
-
 
                         match &component.properties {
                             Properties::Actor {
@@ -155,9 +161,8 @@ impl DevCommand {
 
     fn initial_build(&mut self) {
         for path in self.state.get_paths() {
-            let reference = self.state.get_by_path(&path).unwrap();
+            let (component, claims) = self.state.get_by_path(&path);
 
-            let (component, claims) = (*reference).clone();
 
             // let path = path.clone();
             match &component.properties {
@@ -176,6 +181,9 @@ impl DevCommand {
         }
     }
 
+    /// Sets up a local state of the application
+    /// capturing the components in the manifest and
+    /// the claims in their images. All stored in self.state
     fn setup_image_maping(&mut self) {
 
         for component in self.manifest.spec.components.iter() {
@@ -191,6 +199,7 @@ impl DevCommand {
                         // This is always an actor
                         // But there may be a case when someone uses the wrong image
                         let props = Helper::inspect_images(actor_repo_path.clone());
+
                         if let ComponentClaims::Actor(props) = props {
                             println!("result = {:#?}", &props);
 
@@ -199,9 +208,8 @@ impl DevCommand {
                             let actor_repo_path: String = actor_image_regex.replace(&actor_repo_path, "").into();
                             let actor_repo_path: String = provider_image_regex.replace(&actor_repo_path, "").into();
 
-                            {
-                                self.state.add_item(component.name.clone(), actor_repo_path.clone(), props.module.clone(), component.clone(), ComponentClaims::Actor(props));
-                            }
+                            self.state.add_item(component.name.clone(), actor_repo_path.clone(), props.module.clone(), component.clone(), ComponentClaims::Actor(props));
+
                         } else {
                             Logger::error_and_exit(format!("Oops, the provider image {} is not an actor", image));
                         }
@@ -225,9 +233,8 @@ impl DevCommand {
                             let provider_image_regex = Regex::new(r"/build/([^/]+)\.par.gz").unwrap();
                             let capability_repo_path: String = provider_image_regex.replace(&capability_repo_path, "").into();
 
-                            {
-                                self.state.add_item(component.name.clone(), capability_repo_path.clone(), props.service.clone(), component.clone(), ComponentClaims::Provider(props));
-                            }
+                            self.state.add_item(component.name.clone(), capability_repo_path.clone(), props.service.clone(), component.clone(), ComponentClaims::Provider(props));
+
                         } else {
                             Logger::error_and_exit(format!("Oops, the provider image {} is not a provider", image));
                         }
@@ -242,6 +249,45 @@ impl DevCommand {
         }
     }
 
+
+    /// Validates that the actor has the capability to link to the provider
+    /// TODO: The traits present may be link defs to remote images
+    /// that are not managed in the state and will cause failures.
+    /// Find a way to identify only local images during inspection
+    /// Or add remote images to the state and
+    /// ignore them during file watching in listen_for_changes_and_redeploy function
+    fn validate_actor_claims(&self) {
+        let components = self.state.get_components();
+        for (component, claims) in components {
+
+
+            if let Properties::Actor { .. } = &component.properties {
+                let actor_claims = claims.get_actor_claims();
+
+                for t in &component.traits.clone().unwrap() {
+                    if let TraitProperty::Linkdef(props) = &t.properties {
+                        // get target from state by name
+                        println!("props = {:#?}", props.target.as_str());
+                        // println!("state = {:#?}", self.state);
+                        let (provider, provider_claims) = self.state.get_by_name(props.target.as_str());
+                        let provider_claims = provider_claims.get_provider_claims();
+
+                        println!("actor_claims = {:#?}", &actor_claims);
+                        println!("provider_claims = {:#?}", &provider_claims);
+                        if !(actor_claims.capabilities.contains(&provider_claims.capability_contract_id) || actor_claims.capabilities.contains(&provider_claims.name)) {
+                            Logger::error_and_exit(format!("Actor ({}) does not have the capability {} to link to provider {}", component.name, provider_claims.capability_contract_id, provider.name));
+                        }
+                        // check for target contract_id
+
+                        // check for target contract_id
+                        // check if component image has claims
+                        // if it doesn't fail and exist
+                    }
+                }
+            }
+        }
+
+    }
     /// This harnesses the full power of the wash api
     pub fn start(&mut self) {
 
